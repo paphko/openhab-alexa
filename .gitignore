@@ -50,3 +50,14 @@ jspm_packages
 # Yarn Integrity file
 .yarn-integrity
 
+# eclipse project files
+.project
+.settings
+
+# nodeclipse config files
+.jshintrc
+.npmignore
+
+# in case you use a publish script a la: https://developer.amazon.com/blogs/post/Tx1UE9W1NQ0GYII/publishing-your-skill-code-to-lambda-via-the-command-line-interface
+publish.sh
+publish.cmd

@@ -6,55 +6,10 @@
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
  */
- 
-/**
- * An Amazon Echo Smart Home Skill API implementation for openHAB (v2.x)
- */
+
 var utils = require('./utils.js');
 var rest = require('./rest.js');
 
-/**
- * This method is invoked when we receive a "Discovery" message from Alexa Smart Home Skill.
- * We are expected to respond back with a list of appliances that we have discovered for a given
- * customer.
- */
-exports.handleDiscovery = function (event, context) {
-    /**
-     * Crafting the response header
-     */
-    var header = {
-        messageId: event.header.messageId,
-        name: event.header.name.replace("Request", "Response"),
-        namespace: event.header.namespace,
-        payloadVersion: event.header.payloadVersion
-    };
-
-    /**
-     * Craft the final response back to Alexa Smart Home Skill. This will include all the
-     * discoverd appliances.
-     */
-
-    discoverDevices(event.payload.accessToken, function (devices) {
-        /**
-         * Response body will be an array of discovered devices.
-         */
-        var payload = {
-            discoveredAppliances: devices
-        };
-        var result = {
-            header: header,
-            payload: payload
-        };
-
-        // DEBUG
-        utils.log('Discovery', JSON.stringify(result));
-
-        context.succeed(result);
-        },
-        function (error) {
-            context.done(null, utils.generateControlError(event.header.messageId, event.header.name, 'DependentServiceUnavailableError', error.message));
-        });
-};
 
 /**
  * Control events are processed here.
@@ -64,8 +19,8 @@ exports.handleControl = function (event, context) {
     /**
      * Make a remote call to execute the action based on accessToken and the applianceId and the switchControlAction
      * Some other examples of checks:
-     *	validate the appliance is actually reachable else return TARGET_OFFLINE error
-     *	validate the authentication has not expired else return EXPIRED_ACCESS_TOKEN error
+     *  validate the appliance is actually reachable else return TARGET_OFFLINE error
+     *  validate the authentication has not expired else return EXPIRED_ACCESS_TOKEN error
      * Please see the technical documentation for detailed list of errors
      */
     switch (event.header.name) {
@@ -117,7 +72,7 @@ function turnOnOff(context, event) {
 
     var state = event.header.name === "TurnOnRequest" ? 'ON' : 'OFF';
 
-    postItemCommand(event.payload.accessToken,
+    rest.postItemCommand(event.payload.accessToken,
         event.payload.appliance.applianceId, state, success, failure);
 }
 
@@ -185,7 +140,7 @@ function adjustPercentage(context, event) {
             }
         }
 
-        postItemCommand(event.payload.accessToken, event.payload.appliance.applianceId, value.toString(), itemPostSuccess, failure);
+        rest.postItemCommand(event.payload.accessToken, event.payload.appliance.applianceId, value.toString(), itemPostSuccess, failure);
     };
 
     /**
@@ -196,9 +151,9 @@ function adjustPercentage(context, event) {
     };
 
     if (isSetCommand) {
-        postItemCommand(event.payload.accessToken, event.payload.appliance.applianceId, event.payload.percentageState.value.toString(), itemPostSuccess, failure);
+        rest.postItemCommand(event.payload.accessToken, event.payload.appliance.applianceId, event.payload.percentageState.value.toString(), itemPostSuccess, failure);
     } else if (event.payload.percentageState) {
-        getItem(event.payload.accessToken, event.payload.appliance.applianceId, itemGetSuccess, failure);
+        rest.getItem(event.payload.accessToken, event.payload.appliance.applianceId, itemGetSuccess, failure);
     } else {
         context.done(null, utils.generateControlError(event.header.messageId, event.header.name, 'DependentServiceUnavailableError', 'Invalid target percentage.'));
     }
@@ -235,7 +190,7 @@ function adjustTemperature(context, event) {
         context.done(null, utils.generateControlError(event.header.messageId, event.header.name, 'DependentServiceUnavailableError', error.message));
     };
 
-    getItem(event.payload.accessToken, event.payload.appliance.applianceId, success, failure);
+    rest.getItem(event.payload.accessToken, event.payload.appliance.applianceId, success, failure);
 }
 
 /**
@@ -331,102 +286,5 @@ function adjustTemperatureWithItems(context, event, currentTemperature, targetTe
         context.done(null, utils.generateControlError(event.header.messageId, event.header.name, 'DependentServiceUnavailableError', 'Unable to connect to server'));
     };
 
-    postItemCommand(event.payload.accessToken, targetTemperature.name, setValue.toString(), success, failure);
-}
-
-/**
- * Add all devices that have been tagged
- **/
-function discoverDevices(token, success, failure) {
-
-    var getSuccess = function (items) {
-        //DEBUG
-        utils.log("discoverDevices", JSON.stringify(items));
-        var discoverdDevices = [];
-        for (var itemNum in items) {
-            var item = items[itemNum];
-            for (var tagNum in item.tags) {
-                var tag = item.tags[tagNum];
-                var actions = null;
-                var additionalApplianceDetails = {};
-                switch (tag) {
-                case "Lighting":
-                case "Switchable":
-                    if (item.type === "Switch" ||
-                        (item.type === "Group" && item.groupType && item.groupType === "Switch")) {
-                        actions = [
-                            "turnOn",
-                            "turnOff"
-                        ];
-                    } else if (item.type === "Dimmer" ||
-                        (item.type === "Group" && item.groupType && item.groupType === "Dimmer")) {
-                        actions = [
-                            "incrementPercentage",
-                            "decrementPercentage",
-                            "setPercentage",
-                            "turnOn",
-                            "turnOff"
-                        ];
-                    }
-                    break;
-                case "CurrentTemperature":
-                case "homekit:heatingCoolingMode":
-                case "TargetTemperature":
-                    break;
-                case "Thermostat":
-                    //only group items are allowed to have a Temperature tag
-                    if (item.type === 'Group') {
-                        actions = [
-                            "incrementTargetTemperature",
-                            "decrementTargetTemperature",
-                            "setTargetTemperature"
-                        ];
-                        var formatIndex = item.tags.indexOf("Fahrenheit");
-                        if (formatIndex > -1) {
-                            additionalApplianceDetails.temperatureFormat = "fahrenheit";
-                        } else {
-                            additionalApplianceDetails.temperatureFormat = "celsius";
-                        }
-                    }
-                    break;
-                default:
-                    break;
-                }
-                if (actions !== null) {
-                    // DEBUG
-                    utils.log("adding " + item.name + " with tag: " + tag);
-                    additionalApplianceDetails.itemType = item.type;
-                    additionalApplianceDetails.itemTag = tag;
-                    additionalApplianceDetails.openhabVersion = '2';
-                    var discoverdDevice = {
-                        actions: actions,
-                        applianceId: item.name,
-                        manufacturerName: 'openHAB',
-                        modelName: tag,
-                        version: '2',
-                        friendlyName: item.label,
-                        friendlyDescription: item.type + ' ' + item.name + ' ' + tag + ' via openHAB',
-                        isReachable: true,
-                        additionalApplianceDetails: additionalApplianceDetails
-                    };
-                    discoverdDevices.push(discoverdDevice);
-                }
-            }
-        }
-        success(discoverdDevices);
-    };
-
-    getItems(token, getSuccess, failure);
-}
-
-function getItem(token, itemName, success, failure) {
-    return rest.getItem(2, token, itemName, success, failure);
-}
-
-function getItems(token, success, failure) {
-    return rest.getItems(2, token, success, failure);
-}
-
-function postItemCommand(token, itemName, value, success, failure) {
-    return rest.postItemCommand(2, token, itemName, value, success, failure);
+    rest.postItemCommand(event.payload.accessToken, targetTemperature.name, setValue.toString(), success, failure);
 }
